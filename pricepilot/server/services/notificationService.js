@@ -1,14 +1,12 @@
+
 const sendPriceAlert = require("./emailService");
 const { sendTelegramAlert } = require("./telegramService");
 
 async function sendNotifications(product) {
-  try {
-    // Email Notification
-    await sendPriceAlert(product);
-    console.log("✅ Email notification sent");
+  const results = await Promise.allSettled([
+    sendPriceAlert(product),
 
-    // Telegram Notification
-    await sendTelegramAlert(
+    sendTelegramAlert(
       `🎉 Price Drop Alert!
 
 📦 Product: ${product.name}
@@ -18,14 +16,27 @@ async function sendNotifications(product) {
 🎯 Target Price: ₹${product.targetPrice}
 
 🔗 ${product.url}`
-    );
+    ),
+  ]);
 
-    console.log("✅ Telegram notification sent");
+  const [emailResult, telegramResult] = results;
 
-  } catch (error) {
-    console.log("❌ Notification Error");
-    console.log(error.message);
+  if (emailResult.status === "fulfilled") {
+    console.log("✅ Email notification sent");
+  } else {
+    console.error("❌ Email notification failed:", emailResult.reason.message);
   }
+
+  if (telegramResult.status === "fulfilled") {
+    console.log("✅ Telegram notification sent");
+  } else {
+    console.error("❌ Telegram notification failed:", telegramResult.reason.message);
+  }
+
+  return {
+    email: emailResult.status,
+    telegram: telegramResult.status,
+  };
 }
 
 module.exports = {

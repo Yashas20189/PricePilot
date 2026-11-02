@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -17,14 +18,13 @@ model User {
 }
 
 model Product {
-  id           Int     @id @default(autoincrement())
-
-  name         String
-  url          String
+  id   Int    @id @default(autoincrement())
+  name String
+  url  String
 
   // Product Information
-  platform     String?
-  image        String?
+  platform String?
+  image    String?
 
   // Pricing
   targetPrice  Float
@@ -35,18 +35,19 @@ model Product {
   availability String?
 
   // Scraper Status
-  lastChecked  DateTime?
-  status        String?
-  errorReason   String?
-  retryCount    Int @default(0)
+  lastChecked DateTime?
+  status      String?
+  errorReason String?
+  retryCount  Int       @default(0)
 
   // Notifications
-  alertSent     Boolean @default(false)
+  alertSent Boolean @default(false)
 
-  // Relations
+  // User Relationship
   userId Int
-  user   User @relation(fields: [userId], references: [id])
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Price History
   priceHistory PriceHistory[]
 }
 

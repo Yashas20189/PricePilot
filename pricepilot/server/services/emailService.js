@@ -1,3 +1,4 @@
+
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
@@ -23,11 +24,12 @@ async function sendPriceAlert(product) {
       `,
     });
 
-    console.log("Email Sent");
-    console.log(info.messageId);
+    console.log("Email sent:", info.messageId);
+    return info;
 
   } catch (error) {
-    console.log(error);
+    console.error("Email notification failed:", error.message);
+    throw error;
   }
 }
 
