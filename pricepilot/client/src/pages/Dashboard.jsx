@@ -6,6 +6,7 @@ import StatsSection from "../components/dashboard/StatsSection";
 import AddProductForm from "../components/dashboard/AddProductForm";
 import ProductList from "../components/dashboard/ProductList";
 import DashboardLayout from "../components/layout/DashboardLayout";
+import TelegramConnection from "../components/dashboard/TelegramConnection";
 
 const API_URL=import.meta.env.VITE_API_URL;
 export default function Dashboard(){
@@ -30,6 +31,7 @@ export default function Dashboard(){
  return <DashboardLayout user={user} searchTerm={searchTerm} setSearchTerm={setSearchTerm}>
   <WelcomeSection user={user}/>
   <StatsSection products={products}/>
+  <TelegramConnection connected={Boolean(user?.telegramConnected)} onConnectedChange={(value)=>setUser(u=>({...u,telegramConnected:value}))}/>
   <section className="pp-management"><div className="pp-section-heading"><div><span className="pp-eyebrow">PRODUCT MANAGEMENT</span><h2>Track your products</h2><p>One watchlist for smarter buying decisions.</p></div><button className="pp-primary-button" onClick={()=>setFormOpen(true)}><Plus size={16}/> Add product</button></div>
    <div className="pp-toolbar"><div className="pp-filter-pills">{filters.map(([id,label])=><button key={id} className={filter===id?"selected":""} onClick={()=>setFilter(id)}>{label}{id==="all"&&<span>{products.length}</span>}</button>)}</div><label className="pp-inline-search"><Search size={15}/><input placeholder="Find a product..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></label><label className="pp-sort"><SlidersHorizontal size={14}/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="recent">Recently added</option><option value="name">Name</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select></label></div>
   </section>
