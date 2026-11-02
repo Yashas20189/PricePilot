@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -85,6 +86,17 @@ function Login() {
             {loading ? "Logging in..." : "Login"}
           </button>
         </form>
+
+        {/* Register Link */}
+        <p className="text-center text-sm text-gray-600 mt-5">
+          New to PricePilot?{" "}
+          <span
+            onClick={() => navigate("/register")}
+            className="text-blue-600 font-medium cursor-pointer hover:underline"
+          >
+            Create an account
+          </span>
+        </p>
       </div>
     </div>
   );
