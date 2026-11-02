@@ -1,0 +1,67 @@
+services:
+  - type: web
+    name: pricepilot-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npx playwright install chromium && npx prisma generate
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+
+  - type: cron
+    name: pricepilot-scraper
+    runtime: node
+    rootDir: server
+    schedule: "*/30 * * * *"
+    buildCommand: npm install && npx playwright install chromium && npx prisma generate
+    startCommand: npm run job:scrape
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SCRAPER_MAX_RETRIES
+        value: "5"
+      - key: SCRAPER_LOCK_MINUTES
+        value: "180"
+
+  - type: cron
+    name: pricepilot-notifications
+    runtime: node
+    rootDir: server
+    schedule: "*/2 * * * *"
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm run job:notifications
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: NOTIFICATION_MAX_ATTEMPTS
+        value: "8"
+      - key: NOTIFICATION_BATCH_SIZE
+        value: "25"
+      - key: BOT_TOKEN
+        sync: false

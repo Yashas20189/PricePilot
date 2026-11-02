@@ -1,163 +1,100 @@
 const { validateProductUrl } = require("../security/productUrl");
 const { parseJsonLd } = require("./jsonLdParser");
 
-async function getFirstText(page, selectors) {
+async function firstText(page, selectors) {
   for (const selector of selectors) {
     try {
       const locator = page.locator(selector).first();
-
       if (await locator.count()) {
-        const text = await locator.textContent({
-          timeout: 2000,
-        });
-
-        if (text && text.trim()) {
-          return text.trim();
-        }
+        const value = (await locator.textContent({ timeout: 2500 }))?.trim();
+        if (value) return value;
       }
     } catch {}
   }
-
   return null;
 }
 
-async function getFirstAttribute(page, selectors, attribute) {
+async function firstAttribute(page, selectors, attribute) {
   for (const selector of selectors) {
     try {
       const locator = page.locator(selector).first();
-
       if (await locator.count()) {
-        const value = await locator.getAttribute(attribute);
-
-        if (value) {
-          return value;
-        }
+        const value = await locator.getAttribute(attribute, { timeout: 2500 });
+        if (value) return value;
       }
     } catch {}
   }
-
   return null;
+}
+
+function parseRupeePrice(value) {
+  if (!value) return null;
+  const match = String(value).replace(/\u00a0/g, " ").match(/(?:₹|Rs\.?\s*)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  if (!match) return null;
+  const price = Number(match[1].replace(/,/g, ""));
+  return Number.isFinite(price) && price > 0 && price <= 100000000 ? price : null;
 }
 
 async function scrapeAmazon(page, url) {
   url = await validateProductUrl(url);
-  await page.goto(url, {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForLoadState("domcontentloaded").catch(() => {});
 
-  await page.waitForSelector("span#productTitle", {
-    timeout: 15000
-});
-
-  console.log("Trying Amazon JSON-LD...");
-
+  // Do not make the title selector a hard prerequisite: Amazon sometimes changes
+  // its markup or serves a consent/robot page before the product content.
   const product = await parseJsonLd(page);
-
-  if (product && product.price) {
-    console.log("✅ Amazon JSON-LD Success");
-
-    return {
-      success: true,
-
-      platform: "amazon",
-
-      ...product,
-
-      method: "jsonld",
-
-      scrapedAt: new Date(),
-    };
-  }
-
-  console.log("⚠️ Falling back to Amazon CSS...");
-
-  // -----------------------------
-  // Title
-  // -----------------------------
-
-  const title = await getFirstText(page, [
-    "span#productTitle",
+  const title = product?.title || await firstText(page, [
+    "#productTitle",
     "h1 span.a-size-large",
     "h1.a-size-large",
     "#title span",
   ]);
 
-  // -----------------------------
-  // Price
-  // -----------------------------
+  let price = product?.price || null;
+  if (!price) {
+    const priceText = await firstText(page, [
+      "#corePriceDisplay_desktop_feature_div .apexPriceToPay .a-offscreen",
+      "#corePrice_feature_div .a-offscreen",
+      ".apexPriceToPay .a-offscreen",
+      "#priceblock_dealprice",
+      "#priceblock_ourprice",
+      "span.a-price:not(.a-text-price) span.a-offscreen",
+    ]);
+    price = parseRupeePrice(priceText);
+  }
 
-  const priceText = await getFirstText(page, [
-    ".apexPriceToPay .a-offscreen",
-    ".a-price .a-offscreen",
-    ".a-price-whole",
-    "#corePriceDisplay_desktop_feature_div .a-offscreen",
-  ]);
-
-  // -----------------------------
-  // Image
-  // -----------------------------
-
-  const image = await getFirstAttribute(page, [
+  const image = product?.image || await firstAttribute(page, [
     "#landingImage",
     "#imgTagWrapperId img",
     "#main-image",
   ], "src");
 
-  // -----------------------------
-  // Availability
-  // -----------------------------
-
-  let availability = "Unknown";
-
-  try {
-    const text = await getFirstText(page, [
-      "#availability span",
-      "#availability",
-    ]);
-
-    if (text) {
-      availability = text;
-    }
-  } catch {}
+  let availability = product?.availability || "Unknown";
+  const availabilityText = await firstText(page, ["#availability span", "#availability"]);
+  if (availabilityText) availability = availabilityText;
 
   if (!title) {
-    throw new Error("Amazon title not found.");
+    const body = (await page.locator("body").innerText().catch(() => "")).slice(0, 500);
+    throw new Error(body.match(/captcha|robot check|automated access/i)
+      ? "Amazon returned a CAPTCHA or robot-check page."
+      : "Amazon product title not found; page markup may have changed.");
   }
-
-  if (!priceText) {
-    throw new Error("Amazon price not found.");
-  }
-
-  const price = Number(
-    priceText.replace(/[^0-9.]/g, "")
-  );
-
-  if (isNaN(price)) {
-    throw new Error("Invalid Amazon price.");
+  if (!price) {
+    throw new Error("Amazon price not found or invalid; product may be unavailable or page markup may have changed.");
   }
 
   return {
     success: true,
-
     platform: "amazon",
-
-    title,
-
+    title: title.trim(),
     price,
-
     image,
-
-    currency: "INR",
-
+    currency: product?.currency || "INR",
     availability,
-
-    method: "css",
-
+    brand: product?.brand || null,
+    method: product?.price ? "jsonld" : "css",
     scrapedAt: new Date(),
   };
 }
 
-module.exports = {
-  scrapeAmazon,
-};
+module.exports = { scrapeAmazon, parseRupeePrice };

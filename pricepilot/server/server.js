@@ -4,10 +4,11 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("node:crypto");
 const prisma = require("./prismaClient");
 const authMiddleware = require("./middleware/authMiddleware");
 const { validateProductUrl } = require("./security/productUrl");
-require("./cron");
+const { getTelegramConnectUrl, sendTelegramWelcome } = require("./services/telegramService");
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   throw new Error("JWT_SECRET must be configured with at least 32 characters.");
@@ -51,6 +52,85 @@ function platformFromUrl(value) {
 
 app.get("/", (req, res) => res.json({ service: "PricePilot API", status: "ok" }));
 
+// Create a short-lived, single-use Telegram linking token for the authenticated user.
+app.post("/telegram/connect", authMiddleware, async (req, res) => {
+  try {
+    if (!process.env.BOT_TOKEN || !process.env.TELEGRAM_BOT_USERNAME) {
+      return res.status(503).json({ message: "Telegram connection is not configured." });
+    }
+    const linkToken = crypto.randomBytes(24).toString("base64url");
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { telegramLinkToken: linkToken, telegramLinkExpiresAt: expiresAt },
+    });
+    const connectUrl = await getTelegramConnectUrl(linkToken);
+    return res.json({ connectUrl, expiresAt });
+  } catch (error) {
+    console.error("[telegram] Could not create link:", error);
+    return res.status(500).json({ message: "Unable to create Telegram connection." });
+  }
+});
+
+app.delete("/telegram/connect", authMiddleware, async (req, res) => {
+  try {
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { telegramChatId: null, telegramLinkToken: null, telegramLinkExpiresAt: null },
+    });
+    return res.json({ message: "Telegram account disconnected." });
+  } catch (error) {
+    console.error("[telegram] Disconnect failed:", error);
+    return res.status(500).json({ message: "Unable to disconnect Telegram." });
+  }
+});
+
+// Telegram calls this endpoint after a user presses Start on the bot deep link.
+// Configure the webhook with TELEGRAM_WEBHOOK_SECRET as Telegram's secret_token.
+app.post("/telegram/webhook", async (req, res) => {
+  try {
+    const expected = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+    const supplied = req.get("x-telegram-bot-api-secret-token") || "";
+    if (!expected || !supplied ||
+        Buffer.byteLength(expected) !== Buffer.byteLength(supplied) ||
+        !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) {
+      return res.sendStatus(401);
+    }
+
+    const message = req.body?.message;
+    const chatId = message?.chat?.id;
+    const text = typeof message?.text === "string" ? message.text.trim() : "";
+    const match = text.match(/^\/start\s+([A-Za-z0-9_-]{20,100})$/);
+    if (!chatId || !match) return res.sendStatus(200);
+
+    const linkToken = match[1];
+    const user = await prisma.user.findFirst({
+      where: { telegramLinkToken: linkToken, telegramLinkExpiresAt: { gt: new Date() } },
+      select: { id: true },
+    });
+    if (!user) return res.sendStatus(200);
+
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { telegramChatId: String(chatId), telegramLinkToken: null, telegramLinkExpiresAt: null },
+      });
+      await sendTelegramWelcome(String(chatId));
+    } catch (error) {
+      if (error.code === "P2002") {
+        console.warn("[telegram] Chat is already linked to another account.");
+        return res.sendStatus(200);
+      }
+      throw error;
+    }
+    return res.sendStatus(200);
+  } catch (error) {
+    console.error("[telegram] Webhook error:", error);
+    return res.sendStatus(500);
+  }
+});
+
+
 app.post("/register", async (req, res) => {
   try {
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
@@ -93,10 +173,10 @@ app.get("/profile", authMiddleware, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, telegramChatId: true },
     });
     if (!user) return res.status(404).json({ message: "User not found." });
-    return res.json({ user });
+    return res.json({ user: { id: user.id, name: user.name, email: user.email, telegramConnected: Boolean(user.telegramChatId) } });
   } catch (error) {
     console.error("[profile] Error:", error);
     return res.status(500).json({ message: "Unable to load profile." });

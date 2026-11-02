@@ -14,6 +14,11 @@ model User {
   email    String @unique
   password String
 
+  // Optional Telegram account connection.
+  telegramChatId        String?   @unique
+  telegramLinkToken     String?   @unique
+  telegramLinkExpiresAt DateTime?
+
   products Product[]
   notifications Notification[]
 }
@@ -41,7 +46,7 @@ model Product {
   errorReason String?
   retryCount  Int       @default(0)
 
-  // Notifications
+  // Legacy compatibility field. Recurring alerts now use price-crossing detection.
   alertSent Boolean @default(false)
   nextRetryAt DateTime?
 
@@ -81,6 +86,15 @@ model Notification {
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   productId Int
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Snapshot the values that caused this alert so delayed retries send accurate details.
+  priceAtTrigger       Float?
+  targetPriceAtTrigger Float?
+
+  // Per-channel delivery state keeps a successful email from being resent
+  // when Telegram delivery needs another attempt.
+  emailStatus    String @default("PENDING")
+  telegramStatus String @default("SKIPPED")
 
   @@index([status, nextAttemptAt])
   @@index([productId, type])

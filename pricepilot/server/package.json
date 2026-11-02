@@ -9,7 +9,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
-    "test:syntax": "node scripts/check-syntax.js"
+    "test:syntax": "node scripts/check-syntax.js",
+    "job:scrape": "node jobs/scrapeJob.js",
+    "job:notifications": "node jobs/notificationJob.js"
   },
   "keywords": [],
   "author": "",
