@@ -1,6 +1,9 @@
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 function Register() {
   const navigate = useNavigate();
@@ -8,23 +11,33 @@ function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleRegister = async () => {
+  const handleRegister = async (e) => {
+    e.preventDefault();
+
+    if (!name.trim() || !email.trim() || !password) {
+      alert("Please fill in all fields");
+      return;
+    }
+
+    setLoading(true);
+
     try {
       const response = await axios.post(
-        "http://localhost:5000/register",
+        `${API_URL}/register`,
         {
-          name,
-          email,
+          name: name.trim(),
+          email: email.trim(),
           password,
         }
       );
 
       alert("Registration Successful!");
+
       console.log(response.data);
 
       navigate("/login");
-
     } catch (error) {
       if (error.response) {
         const message = error.response.data.message;
@@ -38,11 +51,13 @@ function Register() {
             navigate("/login");
           }
         } else {
-          alert(message);
+          alert(message || "Registration failed");
         }
       } else {
-        alert("Something went wrong");
+        alert("Unable to connect to the server. Please try again.");
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -50,39 +65,45 @@ function Register() {
     <div>
       <h1>Register</h1>
 
-      <input
-        type="text"
-        placeholder="Enter Name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+      <form onSubmit={handleRegister}>
+        <input
+          type="text"
+          placeholder="Enter Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
 
-      <br />
-      <br />
+        <br />
+        <br />
 
-      <input
-        type="email"
-        placeholder="Enter Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
+        <input
+          type="email"
+          placeholder="Enter Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
 
-      <br />
-      <br />
+        <br />
+        <br />
 
-      <input
-        type="password"
-        placeholder="Enter Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
+        <input
+          type="password"
+          placeholder="Enter Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          minLength={6}
+        />
 
-      <br />
-      <br />
+        <br />
+        <br />
 
-      <button onClick={handleRegister}>
-        Register
-      </button>
+        <button type="submit" disabled={loading}>
+          {loading ? "Registering..." : "Register"}
+        </button>
+      </form>
     </div>
   );
 }

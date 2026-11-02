@@ -1,14 +1,15 @@
+
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-import Navbar from "../components/layout/Navbar";
 import WelcomeSection from "../components/dashboard/WelcomeSection";
 import StatsSection from "../components/dashboard/StatsSection";
 import AddProductForm from "../components/dashboard/AddProductForm";
 import ProductList from "../components/dashboard/ProductList";
 import ProductFilters from "../components/dashboard/ProductFilters";
-
 import DashboardLayout from "../components/layout/DashboardLayout";
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 function Dashboard() {
   const [user, setUser] = useState(null);
@@ -24,101 +25,115 @@ function Dashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState("all");
 
+  const token = localStorage.getItem("token");
+
+  // FILTER PRODUCTS
   const filteredProducts = products.filter((product) => {
-  const search = searchTerm.toLowerCase();
+    const search = searchTerm.toLowerCase();
 
-  const platform = product.url?.includes("amazon")
-    ? "amazon"
-    : product.url?.includes("flipkart")
-    ? "flipkart"
-    : "";
+    const platform = product.url?.includes("amazon")
+      ? "amazon"
+      : product.url?.includes("flipkart")
+      ? "flipkart"
+      : "";
 
-  const matchesSearch =
-    product.name.toLowerCase().includes(search) ||
-    platform.includes(search);
+    const matchesSearch =
+      product.name?.toLowerCase().includes(search) ||
+      platform.includes(search);
 
-  let matchesFilter = true;
+    let matchesFilter = true;
 
-  switch (filter) {
-    case "amazon":
-      matchesFilter = platform === "amazon";
-      break;
+    switch (filter) {
+      case "amazon":
+        matchesFilter = platform === "amazon";
+        break;
 
-    case "flipkart":
-      matchesFilter = platform === "flipkart";
-      break;
+      case "flipkart":
+        matchesFilter = platform === "flipkart";
+        break;
 
-    case "target":
-      matchesFilter = product.currentPrice <= product.targetPrice;
-      break;
+      case "target":
+        matchesFilter =
+          product.currentPrice != null &&
+          product.currentPrice <= product.targetPrice;
+        break;
 
-    case "below":
-      matchesFilter = product.currentPrice < product.targetPrice;
-      break;
+      case "below":
+        matchesFilter =
+          product.currentPrice != null &&
+          product.currentPrice < product.targetPrice;
+        break;
 
-    case "above":
-      matchesFilter = product.currentPrice > product.targetPrice;
-      break;
+      case "above":
+        matchesFilter =
+          product.currentPrice != null &&
+          product.currentPrice > product.targetPrice;
+        break;
 
-    default:
-      matchesFilter = true;
-  }
+      default:
+        matchesFilter = true;
+    }
 
-  return matchesSearch && matchesFilter;
-});
+    return matchesSearch && matchesFilter;
+  });
 
+  // FETCH PROFILE
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const token = localStorage.getItem("token");
+        const savedToken = localStorage.getItem("token");
+
+        if (!savedToken) return;
 
         const response = await axios.get(
-          "http://localhost:5000/profile",
+          `${API_URL}/profile`,
           {
             headers: {
-              Authorization: token,
+              Authorization: savedToken,
             },
           }
         );
 
         setUser(response.data.user);
       } catch (error) {
-        console.log(error);
+        console.error("Profile error:", error.response?.data || error.message);
       }
     };
 
     fetchProfile();
   }, []);
 
+  // FETCH PRODUCTS
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const token = localStorage.getItem("token");
+        const savedToken = localStorage.getItem("token");
+
+        if (!savedToken) return;
 
         const response = await axios.get(
-          "http://localhost:5000/products",
+          `${API_URL}/products`,
           {
             headers: {
-              Authorization: token,
+              Authorization: savedToken,
             },
           }
         );
 
         setProducts(response.data);
       } catch (error) {
-        console.log(error);
+        console.error("Products error:", error.response?.data || error.message);
       }
     };
 
     fetchProducts();
   }, []);
 
+  // ADD PRODUCT
   const handleAddProduct = async () => {
     try {
-      const token = localStorage.getItem("token");
-
       const response = await axios.post(
-        "http://localhost:5000/products",
+        `${API_URL}/products`,
         {
           name,
           url,
@@ -132,8 +147,8 @@ function Dashboard() {
         }
       );
 
-      setProducts([
-        ...products,
+      setProducts((prev) => [
+        ...prev,
         response.data.product,
       ]);
 
@@ -143,100 +158,31 @@ function Dashboard() {
       setUrl("");
       setTargetPrice("");
       setCurrentPrice("");
-
     } catch (error) {
-      console.log(error);
+      console.error("Add product error:", error.response?.data || error.message);
+      alert(error.response?.data?.message || "Failed to add product");
     }
   };
 
+  // UPDATE PRODUCT PRICE
   const handleUpdatePrice = async (id) => {
-  try {
-    const newPrice = prompt("Enter new price");
-
-    if (!newPrice) return;
-
-    const token = localStorage.getItem("token");
-
-    await axios.put(
-      `http://localhost:5000/products/${id}/price`,
-      {
-        price: Number(newPrice),
-      },
-      {
-        headers: {
-          Authorization: token,
-        },
-      }
-    );
-
-    setProducts(
-      products.map((product) =>
-        product.id === id
-          ? {
-              ...product,
-              currentPrice: Number(newPrice),
-            }
-          : product
-      )
-    );
-
-    alert("Price Updated");
-
-  } catch (error) {
-    console.log(error);
-  }
-};
-
-const fetchHistory = async (productId) => {
-  try {
-    const token = localStorage.getItem("token");
-
-    const response = await axios.get(
-      `http://localhost:5000/products/${productId}/history`,
-      {
-        headers: {
-          Authorization: token,
-        },
-      }
-    );
-
-    setHistory((prev) => ({
-      ...prev,
-      [productId]: response.data,
-    }));
-
-    const prices = response.data.map(
-  (item) => item.price
-);
-
-const lowestPrice = Math.min(...prices);
-
-const highestPrice = Math.max(...prices);
-
-const averagePrice =
-  prices.reduce((sum, price) => sum + price, 0) /
-  prices.length;
-
-setAnalytics((prev) => ({
-  ...prev,
-  [productId]: {
-    lowestPrice,
-    highestPrice,
-    averagePrice,
-  },
-}));
-
-  } catch (error) {
-    console.log(error);
-  }
-};
-
-  const handleDeleteProduct = async (id) => {
     try {
-      const token = localStorage.getItem("token");
+      const newPrice = prompt("Enter new price");
 
-      await axios.delete(
-        `http://localhost:5000/products/${id}`,
+      if (newPrice === null || newPrice.trim() === "") return;
+
+      const price = Number(newPrice);
+
+      if (!Number.isFinite(price) || price < 0) {
+        alert("Please enter a valid price");
+        return;
+      }
+
+      await axios.put(
+        `${API_URL}/products/${id}/price`,
+        {
+          price,
+        },
         {
           headers: {
             Authorization: token,
@@ -244,60 +190,130 @@ setAnalytics((prev) => ({
         }
       );
 
-      setProducts(
-        products.filter(
-          (product) => product.id !== id
+      setProducts((prev) =>
+        prev.map((product) =>
+          product.id === id
+            ? { ...product, currentPrice: price }
+            : product
         )
       );
 
-      alert("Product Deleted");
-
+      alert("Price Updated");
     } catch (error) {
-      console.log(error);
+      console.error("Update price error:", error.response?.data || error.message);
+      alert("Failed to update price");
     }
   };
 
- return (
-  <DashboardLayout
-    user={user}
-    searchTerm={searchTerm}
-    setSearchTerm={setSearchTerm}
-  >
-      {/* Welcome */}
+  // FETCH PRICE HISTORY
+  const fetchHistory = async (productId) => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/products/${productId}/history`,
+        {
+          headers: {
+            Authorization: token,
+          },
+        }
+      );
+
+      const historyData = response.data;
+
+      setHistory((prev) => ({
+        ...prev,
+        [productId]: historyData,
+      }));
+
+      if (historyData.length === 0) {
+        setAnalytics((prev) => ({
+          ...prev,
+          [productId]: null,
+        }));
+        return;
+      }
+
+      const prices = historyData.map((item) => item.price);
+
+      const lowestPrice = Math.min(...prices);
+      const highestPrice = Math.max(...prices);
+
+      const averagePrice =
+        prices.reduce((sum, price) => sum + price, 0) /
+        prices.length;
+
+      setAnalytics((prev) => ({
+        ...prev,
+        [productId]: {
+          lowestPrice,
+          highestPrice,
+          averagePrice,
+        },
+      }));
+    } catch (error) {
+      console.error("History error:", error.response?.data || error.message);
+    }
+  };
+
+  // DELETE PRODUCT
+  const handleDeleteProduct = async (id) => {
+    try {
+      await axios.delete(
+        `${API_URL}/products/${id}`,
+        {
+          headers: {
+            Authorization: token,
+          },
+        }
+      );
+
+      setProducts((prev) =>
+        prev.filter((product) => product.id !== id)
+      );
+
+      alert("Product Deleted");
+    } catch (error) {
+      console.error("Delete product error:", error.response?.data || error.message);
+      alert("Failed to delete product");
+    }
+  };
+
+  return (
+    <DashboardLayout
+      user={user}
+      searchTerm={searchTerm}
+      setSearchTerm={setSearchTerm}
+    >
       <WelcomeSection user={user} />
 
-      {/* Statistics */}
       <StatsSection products={filteredProducts} />
 
-      {/* Add Product */}
       <AddProductForm
-  name={name}
-  setName={setName}
-  url={url}
-  setUrl={setUrl}
-  targetPrice={targetPrice}
-  setTargetPrice={setTargetPrice}
-  currentPrice={currentPrice}
-  setCurrentPrice={setCurrentPrice}
-  handleAddProduct={handleAddProduct}
-/>
+        name={name}
+        setName={setName}
+        url={url}
+        setUrl={setUrl}
+        targetPrice={targetPrice}
+        setTargetPrice={setTargetPrice}
+        currentPrice={currentPrice}
+        setCurrentPrice={setCurrentPrice}
+        handleAddProduct={handleAddProduct}
+      />
 
-<ProductFilters
-  filter={filter}
-  setFilter={setFilter}
-/>
+      <ProductFilters
+        filter={filter}
+        setFilter={setFilter}
+      />
 
-<ProductList
-  products={filteredProducts}
-  history={history}
-  analytics={analytics}
-  fetchHistory={fetchHistory}
-  handleUpdatePrice={handleUpdatePrice}
-  handleDeleteProduct={handleDeleteProduct}
-/>
-
+      <ProductList
+        products={filteredProducts}
+        history={history}
+        analytics={analytics}
+        fetchHistory={fetchHistory}
+        handleUpdatePrice={handleUpdatePrice}
+        handleDeleteProduct={handleDeleteProduct}
+      />
     </DashboardLayout>
-);
+  );
 }
 
 export default Dashboard;
