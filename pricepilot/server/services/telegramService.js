@@ -1,35 +1,15 @@
-
 const axios = require("axios");
 
 async function sendTelegramAlert(message) {
-  try {
-    const BOT_TOKEN = process.env.BOT_TOKEN;
-    const CHAT_ID = process.env.CHAT_ID;
-
-    if (!BOT_TOKEN || !CHAT_ID) {
-      throw new Error("Telegram environment variables are missing");
-    }
-
-    const response = await axios.post(
-      `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: CHAT_ID,
-        text: message,
-      }
-    );
-
-    console.log("Telegram alert sent successfully");
-
-    return response.data;
-
-  } catch (error) {
-    console.error(
-      "Telegram notification failed:",
-      error.response?.data || error.message
-    );
-
-    throw error;
-  }
+  const token = process.env.BOT_TOKEN;
+  const chatId = process.env.CHAT_ID;
+  if (!token || !chatId) throw new Error("Telegram is not configured.");
+  const response = await axios.post(
+    `https://api.telegram.org/bot${token}/sendMessage`,
+    { chat_id: chatId, text: message, disable_web_page_preview: true },
+    { timeout: 10000 }
+  );
+  if (!response.data?.ok) throw new Error("Telegram API did not confirm delivery.");
+  return response.data;
 }
-
 module.exports = { sendTelegramAlert };

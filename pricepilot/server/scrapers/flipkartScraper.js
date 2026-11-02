@@ -1,12 +1,14 @@
+const { validateProductUrl } = require("../security/productUrl");
 const { parseJsonLd } = require("./jsonLdParser");
 
 async function scrapeFlipkart(page, url) {
+  url = await validateProductUrl(url);
   await page.goto(url, {
-    waitUntil: "networkidle",
+    waitUntil: "domcontentloaded",
     timeout: 60000,
   });
 
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(1200);
 
   // ============================
   // JSON-LD First

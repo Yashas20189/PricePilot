@@ -15,6 +15,7 @@ model User {
   password String
 
   products Product[]
+  notifications Notification[]
 }
 
 model Product {
@@ -42,6 +43,7 @@ model Product {
 
   // Notifications
   alertSent Boolean @default(false)
+  nextRetryAt DateTime?
 
   // User Relationship
   userId Int
@@ -49,6 +51,7 @@ model Product {
 
   // Price History
   priceHistory PriceHistory[]
+  notifications Notification[]
 }
 
 model PriceHistory {
@@ -59,4 +62,33 @@ model PriceHistory {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+}
+
+
+model Notification {
+  id             Int      @id @default(autoincrement())
+  idempotencyKey String   @unique
+  type           String
+  status         String   @default("PENDING")
+  attempts       Int      @default(0)
+  nextAttemptAt  DateTime @default(now())
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userId    Int
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([productId, type])
+}
+
+model ScraperLock {
+  name       String   @id
+  owner      String?
+  lockedUntil DateTime?
+  updatedAt  DateTime @updatedAt
 }

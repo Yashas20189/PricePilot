@@ -1,192 +1,138 @@
-
 const { chromium } = require("playwright");
 const prisma = require("./prismaClient");
-
 const { scrapeProduct } = require("./scrapers/scraperFactory");
+const { validateProductUrl, assertSafeNavigation } = require("./security/productUrl");
 
-const { sendNotifications } = require("./services/notificationService");
+const MAX_RETRIES = Number(process.env.SCRAPER_MAX_RETRIES || 5);
+
+function retryDelayMinutes(attempt) {
+  return Math.min(30 * (2 ** Math.max(0, attempt - 1)), 24 * 60);
+}
+
+async function markFailure(product, reason, retryable = true) {
+  const nextAttempt = product.retryCount + 1;
+  const canRetry = retryable && nextAttempt < MAX_RETRIES;
+  await prisma.product.update({
+    where: { id: product.id },
+    data: {
+      status: "Failed",
+      errorReason: String(reason).slice(0, 1000),
+      lastChecked: new Date(),
+      retryCount: canRetry ? nextAttempt : MAX_RETRIES,
+      nextRetryAt: canRetry
+        ? new Date(Date.now() + retryDelayMinutes(nextAttempt) * 60 * 1000)
+        : null,
+    },
+  });
+}
 
 async function runScraper() {
-  console.log("\n========================================");
-  console.log("🚀 Starting PricePilot Scraper");
-  console.log("========================================\n");
-
+  console.log("[scraper] Starting price checks");
   let browser;
-
   try {
-    const products = await prisma.product.findMany();
+    const now = new Date();
+    const products = await prisma.product.findMany({
+      where: {
+        retryCount: { lt: MAX_RETRIES },
+        OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
+      },
+      include: { user: { select: { id: true, email: true } } },
+      orderBy: { id: "asc" },
+    });
 
-    console.log(`📦 Found ${products.length} products\n`);
-
-    if (products.length === 0) {
-      console.log("No products available for scraping.");
+    if (!products.length) {
+      console.log("[scraper] No products due for checking.");
       return;
     }
 
-    browser = await chromium.launch({
-      headless: true,
-    });
-
+    browser = await chromium.launch({ headless: true });
     for (const product of products) {
       let page;
-
       try {
-        console.log("----------------------------------------");
-        console.log(`📦 ${product.name}`);
-        console.log("----------------------------------------");
-
+        const safeUrl = await validateProductUrl(product.url);
         page = await browser.newPage();
+        page.setDefaultTimeout(20000);
+        page.setDefaultNavigationTimeout(30000);
 
-        page.setDefaultTimeout(30000);
-        page.setDefaultNavigationTimeout(45000);
+        // Check each top-level redirect/navigation to reduce SSRF exposure.
+        await page.route("**/*", async route => {
+          const request = route.request();
+          if (!request.isNavigationRequest()) return route.continue();
+          try {
+            await assertSafeNavigation(request.url());
+            return route.continue();
+          } catch (error) {
+            console.warn("[scraper] Unsafe navigation blocked:", error.message);
+            return route.abort("blockedbyclient");
+          }
+        });
 
-        const result = await scrapeProduct(page, product.url);
-
-        // HANDLE FAILED SCRAPE
-        if (!result || !result.success) {
-          const reason = result?.reason || "Scraping failed";
-
-          console.log(`❌ ${reason}`);
-
-          await prisma.product.update({
-            where: {
-              id: product.id,
-            },
-            data: {
-              status: "Failed",
-              errorReason: reason,
-              lastChecked: result?.scrapedAt || new Date(),
-              retryCount: {
-                increment: 1,
-              },
-            },
-          });
-
+        const result = await scrapeProduct(page, safeUrl);
+        if (!result?.success) {
+          await markFailure(product, result?.reason || "Scraping failed", result?.retryable !== false);
           continue;
         }
 
-        // VALIDATE SCRAPED PRICE
-        const scrapedPrice = Number(result.price);
-
-        if (!Number.isFinite(scrapedPrice) || scrapedPrice < 0) {
-          throw new Error("Invalid price received from scraper");
+        const price = Number(result.price);
+        if (!Number.isFinite(price) || price <= 0 || price > 100000000) {
+          throw new Error("Scraper returned an invalid or implausible price.");
         }
 
-        console.log(`Platform      : ${result.platform}`);
-        console.log(`Title         : ${result.title}`);
-        console.log(`Price         : ₹${scrapedPrice}`);
-        console.log(`Availability  : ${result.availability}`);
-        console.log(`Method        : ${result.method}`);
-
-        // UPDATE PRODUCT AND PRICE HISTORY
-        await prisma.$transaction([
-          prisma.product.update({
-            where: {
-              id: product.id,
-            },
+        await prisma.$transaction(async tx => {
+          await tx.product.update({
+            where: { id: product.id },
             data: {
-              currentPrice: scrapedPrice,
+              currentPrice: price,
               platform: result.platform,
-              image: result.image,
-              currency: result.currency,
-              availability: result.availability,
+              image: result.image || undefined,
+              currency: result.currency || "INR",
+              availability: result.availability || "Unknown",
               lastChecked: result.scrapedAt || new Date(),
               status: "Success",
               errorReason: null,
               retryCount: 0,
+              nextRetryAt: null,
             },
-          }),
+          });
+          await tx.priceHistory.create({
+            data: { price, productId: product.id },
+          });
 
-          prisma.priceHistory.create({
-            data: {
-              price: scrapedPrice,
-              productId: product.id,
-            },
-          }),
-        ]);
-
-        // CHECK TARGET PRICE
-        if (
-          scrapedPrice <= Number(product.targetPrice) &&
-          !product.alertSent
-        ) {
-          console.log("🎉 Target price reached!");
-
-          try {
-            await sendNotifications({
-              name: result.title || product.name,
-              currentPrice: scrapedPrice,
-              targetPrice: product.targetPrice,
-              url: product.url,
-            });
-
-            await prisma.product.update({
-              where: {
-                id: product.id,
+          if (price <= Number(product.targetPrice) && !product.alertSent) {
+            await tx.notification.upsert({
+              where: { idempotencyKey: `price-target:${product.id}:${Number(product.targetPrice).toFixed(2)}` },
+              create: {
+                idempotencyKey: `price-target:${product.id}:${Number(product.targetPrice).toFixed(2)}`,
+                type: "PRICE_TARGET",
+                status: "PENDING",
+                userId: product.userId,
+                productId: product.id,
+                nextAttemptAt: new Date(),
               },
-              data: {
-                alertSent: true,
-              },
+              update: {},
             });
-
-            console.log("✅ Notification process completed.");
-          } catch (notificationError) {
-            console.error(
-              "❌ Notification failed:",
-              notificationError.message
-            );
           }
-        }
-
-        console.log("✅ Database updated.\n");
-
+        });
+        console.log(`[scraper] Updated product ${product.id}: ₹${price}`);
       } catch (error) {
-        console.error("❌ Unexpected Error:", error.message);
-
-        try {
-          await prisma.product.update({
-            where: {
-              id: product.id,
-            },
-            data: {
-              status: "Failed",
-              errorReason: error.message,
-              lastChecked: new Date(),
-              retryCount: {
-                increment: 1,
-              },
-            },
-          });
-        } catch (dbError) {
-          console.error(
-            "❌ Failed to update product error status:",
-            dbError.message
-          );
-        }
-
+        console.error(`[scraper] Product ${product.id} failed:`, error.message);
+        const permanentInputError =
+          error.message?.includes("Only HTTPS") ||
+          error.message?.includes("Only Amazon.in") ||
+          error.message?.includes("credentials are not allowed") ||
+          error.message?.includes("Non-standard URL ports");
+        try { await markFailure(product, error.message, !permanentInputError); }
+        catch (dbError) { console.error("[scraper] Could not persist failure:", dbError.message); }
       } finally {
-        if (page) {
-          await page.close().catch((error) => {
-            console.error("Page close error:", error.message);
-          });
-        }
+        if (page) await page.close().catch(() => {});
       }
     }
-
   } catch (error) {
-    console.error("❌ Scraper startup error:", error);
-
+    console.error("[scraper] Job failed:", error);
+    throw error;
   } finally {
-    if (browser) {
-      await browser.close().catch((error) => {
-        console.error("Browser close error:", error.message);
-      });
-    }
-
-    console.log("\n========================================");
-    console.log("✅ Scraping Completed");
-    console.log("========================================\n");
+    if (browser) await browser.close().catch(error => console.error("[scraper] Browser close:", error.message));
+    console.log("[scraper] Finished price checks");
   }
 }
-
 module.exports = runScraper;

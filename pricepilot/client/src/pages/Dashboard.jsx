@@ -1,319 +1,39 @@
-
-import { useEffect, useState } from "react";
+import { useEffect,useMemo,useState } from "react";
 import axios from "axios";
-
+import { Plus, Search, SlidersHorizontal } from "lucide-react";
 import WelcomeSection from "../components/dashboard/WelcomeSection";
 import StatsSection from "../components/dashboard/StatsSection";
 import AddProductForm from "../components/dashboard/AddProductForm";
 import ProductList from "../components/dashboard/ProductList";
-import ProductFilters from "../components/dashboard/ProductFilters";
 import DashboardLayout from "../components/layout/DashboardLayout";
 
-const API_URL = import.meta.env.VITE_API_URL;
-
-function Dashboard() {
-  const [user, setUser] = useState(null);
-
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [targetPrice, setTargetPrice] = useState("");
-  const [currentPrice, setCurrentPrice] = useState("");
-
-  const [products, setProducts] = useState([]);
-  const [history, setHistory] = useState({});
-  const [analytics, setAnalytics] = useState({});
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filter, setFilter] = useState("all");
-
-  const token = localStorage.getItem("token");
-
-  // FILTER PRODUCTS
-  const filteredProducts = products.filter((product) => {
-    const search = searchTerm.toLowerCase();
-
-    const platform = product.url?.includes("amazon")
-      ? "amazon"
-      : product.url?.includes("flipkart")
-      ? "flipkart"
-      : "";
-
-    const matchesSearch =
-      product.name?.toLowerCase().includes(search) ||
-      platform.includes(search);
-
-    let matchesFilter = true;
-
-    switch (filter) {
-      case "amazon":
-        matchesFilter = platform === "amazon";
-        break;
-
-      case "flipkart":
-        matchesFilter = platform === "flipkart";
-        break;
-
-      case "target":
-        matchesFilter =
-          product.currentPrice != null &&
-          product.currentPrice <= product.targetPrice;
-        break;
-
-      case "below":
-        matchesFilter =
-          product.currentPrice != null &&
-          product.currentPrice < product.targetPrice;
-        break;
-
-      case "above":
-        matchesFilter =
-          product.currentPrice != null &&
-          product.currentPrice > product.targetPrice;
-        break;
-
-      default:
-        matchesFilter = true;
-    }
-
-    return matchesSearch && matchesFilter;
-  });
-
-  // FETCH PROFILE
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const savedToken = localStorage.getItem("token");
-
-        if (!savedToken) return;
-
-        const response = await axios.get(
-          `${API_URL}/profile`,
-          {
-            headers: {
-              Authorization: savedToken,
-            },
-          }
-        );
-
-        setUser(response.data.user);
-      } catch (error) {
-        console.error("Profile error:", error.response?.data || error.message);
-      }
-    };
-
-    fetchProfile();
-  }, []);
-
-  // FETCH PRODUCTS
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const savedToken = localStorage.getItem("token");
-
-        if (!savedToken) return;
-
-        const response = await axios.get(
-          `${API_URL}/products`,
-          {
-            headers: {
-              Authorization: savedToken,
-            },
-          }
-        );
-
-        setProducts(response.data);
-      } catch (error) {
-        console.error("Products error:", error.response?.data || error.message);
-      }
-    };
-
-    fetchProducts();
-  }, []);
-
-  // ADD PRODUCT
-  const handleAddProduct = async () => {
-    try {
-      const response = await axios.post(
-        `${API_URL}/products`,
-        {
-          name,
-          url,
-          targetPrice: Number(targetPrice),
-          currentPrice: Number(currentPrice),
-        },
-        {
-          headers: {
-            Authorization: token,
-          },
-        }
-      );
-
-      setProducts((prev) => [
-        ...prev,
-        response.data.product,
-      ]);
-
-      alert("Product Added Successfully");
-
-      setName("");
-      setUrl("");
-      setTargetPrice("");
-      setCurrentPrice("");
-    } catch (error) {
-      console.error("Add product error:", error.response?.data || error.message);
-      alert(error.response?.data?.message || "Failed to add product");
-    }
-  };
-
-  // UPDATE PRODUCT PRICE
-  const handleUpdatePrice = async (id) => {
-    try {
-      const newPrice = prompt("Enter new price");
-
-      if (newPrice === null || newPrice.trim() === "") return;
-
-      const price = Number(newPrice);
-
-      if (!Number.isFinite(price) || price < 0) {
-        alert("Please enter a valid price");
-        return;
-      }
-
-      await axios.put(
-        `${API_URL}/products/${id}/price`,
-        {
-          price,
-        },
-        {
-          headers: {
-            Authorization: token,
-          },
-        }
-      );
-
-      setProducts((prev) =>
-        prev.map((product) =>
-          product.id === id
-            ? { ...product, currentPrice: price }
-            : product
-        )
-      );
-
-      alert("Price Updated");
-    } catch (error) {
-      console.error("Update price error:", error.response?.data || error.message);
-      alert("Failed to update price");
-    }
-  };
-
-  // FETCH PRICE HISTORY
-  const fetchHistory = async (productId) => {
-    try {
-      const response = await axios.get(
-        `${API_URL}/products/${productId}/history`,
-        {
-          headers: {
-            Authorization: token,
-          },
-        }
-      );
-
-      const historyData = response.data;
-
-      setHistory((prev) => ({
-        ...prev,
-        [productId]: historyData,
-      }));
-
-      if (historyData.length === 0) {
-        setAnalytics((prev) => ({
-          ...prev,
-          [productId]: null,
-        }));
-        return;
-      }
-
-      const prices = historyData.map((item) => item.price);
-
-      const lowestPrice = Math.min(...prices);
-      const highestPrice = Math.max(...prices);
-
-      const averagePrice =
-        prices.reduce((sum, price) => sum + price, 0) /
-        prices.length;
-
-      setAnalytics((prev) => ({
-        ...prev,
-        [productId]: {
-          lowestPrice,
-          highestPrice,
-          averagePrice,
-        },
-      }));
-    } catch (error) {
-      console.error("History error:", error.response?.data || error.message);
-    }
-  };
-
-  // DELETE PRODUCT
-  const handleDeleteProduct = async (id) => {
-    try {
-      await axios.delete(
-        `${API_URL}/products/${id}`,
-        {
-          headers: {
-            Authorization: token,
-          },
-        }
-      );
-
-      setProducts((prev) =>
-        prev.filter((product) => product.id !== id)
-      );
-
-      alert("Product Deleted");
-    } catch (error) {
-      console.error("Delete product error:", error.response?.data || error.message);
-      alert("Failed to delete product");
-    }
-  };
-
-  return (
-    <DashboardLayout
-      user={user}
-      searchTerm={searchTerm}
-      setSearchTerm={setSearchTerm}
-    >
-      <WelcomeSection user={user} />
-
-      <StatsSection products={filteredProducts} />
-
-      <AddProductForm
-        name={name}
-        setName={setName}
-        url={url}
-        setUrl={setUrl}
-        targetPrice={targetPrice}
-        setTargetPrice={setTargetPrice}
-        currentPrice={currentPrice}
-        setCurrentPrice={setCurrentPrice}
-        handleAddProduct={handleAddProduct}
-      />
-
-      <ProductFilters
-        filter={filter}
-        setFilter={setFilter}
-      />
-
-      <ProductList
-        products={filteredProducts}
-        history={history}
-        analytics={analytics}
-        fetchHistory={fetchHistory}
-        handleUpdatePrice={handleUpdatePrice}
-        handleDeleteProduct={handleDeleteProduct}
-      />
-    </DashboardLayout>
-  );
+const API_URL=import.meta.env.VITE_API_URL;
+export default function Dashboard(){
+ const [user,setUser]=useState(null),[products,setProducts]=useState([]),[history,setHistory]=useState({}),[analytics,setAnalytics]=useState({});
+ const [searchTerm,setSearchTerm]=useState(""),[filter,setFilter]=useState("all"),[sort,setSort]=useState("recent");
+ const [formOpen,setFormOpen]=useState(false),[name,setName]=useState(""),[url,setUrl]=useState(""),[targetPrice,setTargetPrice]=useState(""),[currentPrice,setCurrentPrice]=useState(""),[submitting,setSubmitting]=useState(false);
+ const token=localStorage.getItem("token"),headers={Authorization:token};
+ useEffect(()=>{if(!token){window.location.replace("/login");return;} (async()=>{try{const [u,p]=await Promise.all([axios.get(`${API_URL}/profile`,{headers}),axios.get(`${API_URL}/products`,{headers})]);setUser(u.data.user);setProducts(p.data);}catch(e){console.error("Dashboard load failed",e.response?.data||e.message);}})();},[]);
+ const filtered=useMemo(()=>products.filter(p=>{
+  const platform=p.url?.toLowerCase().includes("amazon")?"amazon":p.url?.toLowerCase().includes("flipkart")?"flipkart":"";
+  const current=Number(p.currentPrice),target=Number(p.targetPrice);
+  const q=searchTerm.toLowerCase();
+  const matchText=p.name?.toLowerCase().includes(q)||platform.includes(q);
+  const matchFilter=filter==="all"||(filter==="amazon"&&platform==="amazon")||(filter==="flipkart"&&platform==="flipkart")||(filter==="reached"&&p.currentPrice!=null&&current<=target)||(filter==="above"&&p.currentPrice!=null&&current>target);
+  return matchText&&matchFilter;
+ }).sort((a,b)=>sort==="price-low"?Number(a.currentPrice||0)-Number(b.currentPrice||0):sort==="price-high"?Number(b.currentPrice||0)-Number(a.currentPrice||0):sort==="name"?a.name.localeCompare(b.name):new Date(b.createdAt||0)-new Date(a.createdAt||0)),[products,searchTerm,filter,sort]);
+ async function addProduct(){setSubmitting(true);try{const r=await axios.post(`${API_URL}/products`,{name,url,targetPrice:Number(targetPrice),currentPrice:currentPrice===""?undefined:Number(currentPrice)},{headers});setProducts(p=>[...p,r.data.product]);setName("");setUrl("");setTargetPrice("");setCurrentPrice("");setFormOpen(false);}catch(e){alert(e.response?.data?.message||"Could not add product.");}finally{setSubmitting(false);}}
+ async function updatePrice(id){const raw=prompt("Enter the latest product price");if(raw===null||raw.trim()==="")return;const price=Number(raw);if(!Number.isFinite(price)||price<0){alert("Enter a valid price.");return;}try{await axios.put(`${API_URL}/products/${id}/price`,{price},{headers});setProducts(p=>p.map(x=>x.id===id?{...x,currentPrice:price}:x));}catch(e){alert(e.response?.data?.message||"Price update failed.");}}
+ async function deleteProduct(id){try{await axios.delete(`${API_URL}/products/${id}`,{headers});setProducts(p=>p.filter(x=>x.id!==id));}catch(e){alert(e.response?.data?.message||"Could not delete product.");}}
+ async function fetchHistory(id){try{const r=await axios.get(`${API_URL}/products/${id}/history`,{headers});const rows=r.data;setHistory(h=>({...h,[id]:rows}));if(!rows.length){setAnalytics(a=>({...a,[id]:null}));return;}const prices=rows.map(x=>Number(x.price)).filter(Number.isFinite);setAnalytics(a=>({...a,[id]:{lowestPrice:Math.min(...prices),highestPrice:Math.max(...prices),averagePrice:prices.reduce((s,n)=>s+n,0)/prices.length}}));}catch(e){console.error("Price history failed",e.response?.data||e.message);}}
+ const filters=[["all","All products"],["amazon","Amazon"],["flipkart","Flipkart"],["reached","Target reached"],["above","Above target"]];
+ return <DashboardLayout user={user} searchTerm={searchTerm} setSearchTerm={setSearchTerm}>
+  <WelcomeSection user={user}/>
+  <StatsSection products={products}/>
+  <section className="pp-management"><div className="pp-section-heading"><div><span className="pp-eyebrow">PRODUCT MANAGEMENT</span><h2>Track your products</h2><p>One watchlist for smarter buying decisions.</p></div><button className="pp-primary-button" onClick={()=>setFormOpen(true)}><Plus size={16}/> Add product</button></div>
+   <div className="pp-toolbar"><div className="pp-filter-pills">{filters.map(([id,label])=><button key={id} className={filter===id?"selected":""} onClick={()=>setFilter(id)}>{label}{id==="all"&&<span>{products.length}</span>}</button>)}</div><label className="pp-inline-search"><Search size={15}/><input placeholder="Find a product..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></label><label className="pp-sort"><SlidersHorizontal size={14}/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="recent">Recently added</option><option value="name">Name</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select></label></div>
+  </section>
+  <ProductList products={filtered} history={history} analytics={analytics} fetchHistory={fetchHistory} handleUpdatePrice={updatePrice} handleDeleteProduct={deleteProduct}/>
+  <AddProductForm isOpen={formOpen} onClose={()=>setFormOpen(false)} name={name} setName={setName} url={url} setUrl={setUrl} targetPrice={targetPrice} setTargetPrice={setTargetPrice} currentPrice={currentPrice} setCurrentPrice={setCurrentPrice} handleAddProduct={addProduct} isSubmitting={submitting}/>
+ </DashboardLayout>;
 }
-
-export default Dashboard;

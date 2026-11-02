@@ -1,3 +1,4 @@
+const { validateProductUrl } = require("../security/productUrl");
 const { parseJsonLd } = require("./jsonLdParser");
 
 async function getFirstText(page, selectors) {
@@ -39,6 +40,7 @@ async function getFirstAttribute(page, selectors, attribute) {
 }
 
 async function scrapeAmazon(page, url) {
+  url = await validateProductUrl(url);
   await page.goto(url, {
     waitUntil: "domcontentloaded",
     timeout: 60000,

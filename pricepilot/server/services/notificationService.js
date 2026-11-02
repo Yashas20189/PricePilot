@@ -1,44 +1,31 @@
-
-const sendPriceAlert = require("./emailService");
+const { sendPriceAlert } = require("./emailService");
 const { sendTelegramAlert } = require("./telegramService");
 
-async function sendNotifications(product) {
-  const results = await Promise.allSettled([
-    sendPriceAlert(product),
+async function sendNotifications({ user, product }) {
+  const tasks = [];
+  // Email is user-specific and is the primary delivery channel.
+  tasks.push(["email", () => sendPriceAlert({ recipient: user.email, product })]);
 
-    sendTelegramAlert(
-      `🎉 Price Drop Alert!
-
-📦 Product: ${product.name}
-
-💰 Current Price: ₹${product.currentPrice}
-
-🎯 Target Price: ₹${product.targetPrice}
-
-🔗 ${product.url}`
-    ),
-  ]);
-
-  const [emailResult, telegramResult] = results;
-
-  if (emailResult.status === "fulfilled") {
-    console.log("✅ Email notification sent");
-  } else {
-    console.error("❌ Email notification failed:", emailResult.reason.message);
+  // Telegram is optional; when configured it is an additional channel.
+  if (process.env.BOT_TOKEN && process.env.CHAT_ID) {
+    const message = `Price target reached!\n\n${product.name}\nCurrent: ₹${product.currentPrice}\nTarget: ₹${product.targetPrice}\n${product.url}`;
+    tasks.push(["telegram", () => sendTelegramAlert(message)]);
   }
 
-  if (telegramResult.status === "fulfilled") {
-    console.log("✅ Telegram notification sent");
-  } else {
-    console.error("❌ Telegram notification failed:", telegramResult.reason.message);
-  }
+  const results = await Promise.allSettled(tasks.map(([, send]) => send()));
+  const channels = {};
+  let delivered = false;
+  results.forEach((result, index) => {
+    const channel = tasks[index][0];
+    channels[channel] = result.status === "fulfilled" ? "sent" : "failed";
+    if (result.status === "fulfilled") delivered = true;
+    else console.error(`${channel} notification failed:`, result.reason?.message || result.reason);
+  });
 
-  return {
-    email: emailResult.status,
-    telegram: telegramResult.status,
-  };
+  if (!delivered) {
+    const reasons = results.filter(x => x.status === "rejected").map(x => x.reason?.message || "Unknown error");
+    throw new Error(`All notification channels failed: ${reasons.join("; ")}`);
+  }
+  return { delivered: true, channels };
 }
-
-module.exports = {
-  sendNotifications,
-};
+module.exports = { sendNotifications };

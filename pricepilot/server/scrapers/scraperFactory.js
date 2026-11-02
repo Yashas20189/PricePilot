@@ -1,84 +1,26 @@
-const { scrapeAmazon } = require("./amazonScraper");
-const { scrapeFlipkart } = require("./flipkartScraper");
-
-// Future imports
-// const { scrapeMyntra } = require("./myntraScraper");
-// const { scrapeAjio } = require("./ajioScraper");
+const { scrapeAmazon } = require("./scrapers/amazonScraper");
+const { scrapeFlipkart } = require("./scrapers/flipkartScraper");
+const { validateProductUrl } = require("./security/productUrl");
 
 function detectPlatform(url) {
-  url = url.toLowerCase();
-
-  if (
-    url.includes("amazon.in") ||
-    url.includes("amazon.com") ||
-    url.includes("amzn.in")
-  ) {
-    return "amazon";
-  }
-
-  if (url.includes("flipkart")) {
-    return "flipkart";
-  }
-
-  // Future
-  // if (url.includes("myntra")) return "myntra";
-  // if (url.includes("ajio")) return "ajio";
-  // if (url.includes("croma")) return "croma";
-
+  let host;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
+  if (host === "amazon.in" || host.endsWith(".amazon.in") || host === "amazon.com" || host.endsWith(".amazon.com")) return "amazon";
+  if (host === "flipkart.com" || host.endsWith(".flipkart.com")) return "flipkart";
   return null;
 }
 
 async function scrapeProduct(page, url) {
-  const platform = detectPlatform(url);
-
-  if (!platform) {
-    return {
-      success: false,
-      platform: "unknown",
-      reason: "Unsupported website",
-      retryable: false,
-      scrapedAt: new Date(),
-    };
-  }
-
   try {
-    switch (platform) {
-      case "amazon":
-        return await scrapeAmazon(page, url);
-
-      case "flipkart":
-        return await scrapeFlipkart(page, url);
-
-      // Future
-      // case "myntra":
-      //   return await scrapeMyntra(page, url);
-
-      // case "ajio":
-      //   return await scrapeAjio(page, url);
-
-      default:
-        return {
-          success: false,
-          platform,
-          reason: "Scraper not implemented",
-          retryable: false,
-          scrapedAt: new Date(),
-        };
-    }
+    const safeUrl = await validateProductUrl(url);
+    const platform = detectPlatform(safeUrl);
+    if (!platform) return { success:false, platform:"unknown", reason:"Unsupported website", retryable:false };
+    const result = platform === "amazon"
+      ? await scrapeAmazon(page, safeUrl)
+      : await scrapeFlipkart(page, safeUrl);
+    return result;
   } catch (error) {
-    console.error(`${platform} Scraper Error:`, error.message);
-
-    return {
-      success: false,
-      platform,
-      reason: error.message,
-      retryable: true,
-      scrapedAt: new Date(),
-    };
+    return { success:false, reason:error.message, retryable:!error.message.includes("Only HTTPS") && !error.message.includes("Only Amazon") };
   }
 }
-
-module.exports = {
-  scrapeProduct,
-  detectPlatform,
-};
+module.exports = { scrapeProduct, detectPlatform };
